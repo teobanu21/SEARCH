@@ -1,5 +1,6 @@
 from collections import Counter
 from z3 import *
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
 def calculate_difference_distribution_table(sbox: list) -> Counter:
@@ -23,6 +24,7 @@ def calculate_difference_distribution_table(sbox: list) -> Counter:
 
     return ddt
 
+
 def pretty_print_ddt(counter: Counter) -> None:
     max_x = max(coord[0] for coord in counter.keys()) + 1
     max_y = max(coord[1] for coord in counter.keys()) + 1
@@ -33,6 +35,7 @@ def pretty_print_ddt(counter: Counter) -> None:
     for row in matrix:
         print(row)
 
+
 def formatted_bits(value, block_size, sub_block_size):
     binary_value = bin(value)[2:].zfill(block_size)
     return "|".join(
@@ -42,42 +45,7 @@ def formatted_bits(value, block_size, sub_block_size):
 
 
 def all_smt(solver, initial_terms):
-    """
-    Generate all satisfying models for a given set of initial terms using an SMT solver.
-
-    Parameters
-    ----------
-    solver : z3.Solver 
-        An instance of an SMT solver.
-
-    initial_terms : list
-        A list of initial terms to generate satisfying models for.
-
-    Yields
-    ------
-    model : Model
-        A satisfying model for the set of initial terms.
-
-    Notes
-    -----
-    This function uses a recursive approach to generate all satisfying models for a given set of initial terms.
-    The `all_smt_rec` function is a recursive helper function that performs the actual generation of satisfying models.
-    """
-
     def all_smt_rec(terms):
-        """
-        Recursive helper function to generate all satisfying models for a given set of terms.
-
-        Parameters
-        ----------
-        terms : list
-            A list of terms to generate satisfying models for.
-
-        Yields
-        ------
-        model : Model
-            A satisfying model for the set of terms.
-        """
         if solver.check() == sat:
             model = solver.model()
             yield model
@@ -90,3 +58,56 @@ def all_smt(solver, initial_terms):
                 solver.pop()
 
     yield from all_smt_rec(list(initial_terms))
+
+
+
+def parity(x):
+    """Calculates the parity of an integer.
+
+    This method calculates the parity of an integer by counting the number
+    of set bits in the binary representation of the integer. It returns 0 if the
+    number of set bits is even, and 1 otherwise.
+
+    Args:
+        x (int): The input value for which the parity is calculated.
+
+    Returns:
+        int: 0 if the number of set bits is even, 1 otherwise.
+    """
+    res = 0
+    while x:
+        res ^= 1
+        x &= (x - 1)
+    return res
+
+
+def calculate_linear_bias(sbox, no_sign=True, fraction=False):
+    """Calculates the linear bias of an S-box.
+
+    This method calculates the linear bias of an S-box. It iterates over
+    all possible input and output mask pairs and computes the linear bias using
+    the Cryptanalysis.parity method.
+
+    Args:
+        sbox (list): A list of integers representing the S-box.
+        no_sign (bool, optional): If True, the absolute value of the bias is returned. Defaults to True.
+        fraction (bool, optional): If True, the bias is returned as a fraction. Defaults to False.
+
+    Returns:
+        Counter: A Counter dictionary containing the linear biases for each input and output mask pair.
+    """
+    n = len(sbox)
+    bias = Counter({(i, j): -(n // 2) for i in range(n) for j in range(n)})
+    for imask in range(n):
+        for omask in range(n):
+            for i in range(n):
+                bias[(imask, omask)] += parity((sbox[i] & omask) ^ (i & imask)) ^ 1
+    if no_sign:
+        for i in bias:
+            bias[i] = abs(bias[i])
+    if fraction:
+        for i in bias:
+            bias[i] /= n
+    return bias
+
+
